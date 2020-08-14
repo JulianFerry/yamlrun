@@ -1,0 +1,20 @@
+structure: package/example/yaml
+
+variables:
+  - constant_variable: hello world!
+  - relative_path: $package_path/hello_world
+  - nested_paths: {
+      'projects': {
+        'example': 'woooo',
+        'project1': ['/opt/folder1', '/home/folder2'],
+        'project2': '/opt/folder3'
+      }
+    }
+  - credentials: $nested_paths['projects']['project1'][1]/credentials.json
+  - crazy_val: 0
+  - crazy: $nested_paths['projects'][$example_name]/${crazy_val}
+
+script:
+  cd: $package_path
+  run:
+    - echo $nested_paths['projects']['project1']
