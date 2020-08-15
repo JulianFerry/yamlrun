@@ -10,11 +10,9 @@ variables:
         'project2': '/opt/folder3'
       }
     }
-  - credentials: $nested_paths['projects']['project1'][1]/credentials.json
-  - crazy_val: 0
-  - crazy: $nested_paths['projects'][$example_name]/${crazy_val}
+  - credentials: $nested_paths['projects']['project1'][1]/credentials
 
 script:
   cd: $package_path
   run:
-    - echo $nested_paths['projects']['project1']
+    - echo $nested_paths['projects'][$example_name]

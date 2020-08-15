@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import shlex
 import subprocess
 from yaml import safe_load
 from yaml.parser import ParserError
@@ -50,7 +52,7 @@ class Yaml(dict):
             raise ValueError(
                 '`structure` argument should end with "yaml"\n'
                 f'Received: "{structure}""')
-        # Parse structure and find dirnames and abspaths
+        # Parse structure and find structure dirnames and abspaths
         abspath = os.path.abspath(self.path)
         filename = os.path.basename(abspath)
         paths = [('yaml', filename, abspath)]
@@ -93,10 +95,10 @@ class Yaml(dict):
         # Print
         if not self.quiet:
             print('Parsed variables:\n')
-            pprint(parsed)
+            pprint(parsed, sort_dicts=False)
             print()
 
-    def _replace_variables(self, parsed_str):
+    def _replace_variables(self, parsed_str, add_quotes=False):
         """
         Replace $variables with their value stored in self.variables
         If no variable is found, defaults to environment variables
@@ -108,13 +110,28 @@ class Yaml(dict):
             String parsed from the yaml `variables` tag
 
         """
-        # Find all variables in the string and set default replacement to ''
-        parsed_variables = re.findall(r'(\$.*?)(?:/|$)', parsed_str)
+        # Find all $ or ${} variables in the string 
+        quotes = '(?:"|\')'
+        alphanums_in_square_brackets = \
+            '(?:'                                                   + \
+                '(?:\[' + quotes + '[\w_]+' + quotes + '\])'        + \
+                '|'                                                 + \
+                '(?:\[\$[\w_]+\])'                                  + \
+                '|'                                                 + \
+                '(?:\[\d+\])'                                       + \
+            ')*'
+        pattern = \
+            '('                                                     + \
+                r'\$[\w_]+' + alphanums_in_square_brackets          + \
+                '|'                                                 + \
+                r'\${[\w_]+' + alphanums_in_square_brackets + '}'   + \
+            ')'
+        parsed_variables = re.findall(pattern, parsed_str)
         var_replacements = {k: k for k in parsed_variables}
         # Find a replacement for each parsed variable
         for var in parsed_variables:
             # Split var into subkeys if var is of the form $variable['subkey']
-            # E.g. "$PATHS['mypath']['path2']" -> ["$PATHS", "mypath", "path2"]
+            # E.g. "$PATHS['mypath'][$arg']" -> ["$PATHS", "mypath", "$arg"]
             regex = '\[' + '(?:\'|")*' + '(.*?)' + '(?:\'|")*' + '\]'  # ['.*']
             subkeys = re.findall(regex, var)
             subkeys.insert(0, re.findall('^\${?[\w_]+}?', var)[0])
@@ -137,7 +154,16 @@ class Yaml(dict):
                 pass
         # Now replace all occurences of that variable in the parsed string
         for var, replacement in var_replacements.items():
-            parsed_str = parsed_str.replace(var, str(replacement))
+            if var == parsed_str and not add_quotes:
+                parsed_str = replacement
+            else:
+                if isinstance(replacement, (list, dict)):
+                    replacement = json.dumps(replacement, indent=4)
+                    if add_quotes:
+                        replacement = "'" + replacement + "'"
+                else:
+                    replacement = str(replacement)
+                parsed_str = parsed_str.replace(var, replacement)
         return parsed_str
     
     def _environ(self, key):
@@ -155,17 +181,17 @@ class Yaml(dict):
         cwd = script.get('cd', '$yaml_path')
         cwd = self._replace_variables(cwd)
         commands = script.get('run', [])
-        commands = [self._replace_variables(cmd) for cmd in commands]
-        print(commands)
-        # if not self.quiet:
-        #     print('Running script:\n')
-        # for cmd in commands:
-        #     self._run_command(cmd, cwd)
+        commands = [
+            self._replace_variables(cmd, add_quotes=True)for cmd in commands]
+        if not self.quiet:
+            print('Running script:\n')
+        for cmd in commands:
+            self._run_command(cmd, cwd)
     
     def _run_command(self, command_str, cwd):
         """
         """
-        command_list = command_str.split(' ')
+        command_list = shlex.split(command_str)
         r = subprocess.run(
             command_list,
             stdin=subprocess.PIPE,
@@ -174,8 +200,8 @@ class Yaml(dict):
             universal_newlines=True,
             cwd=cwd
         )
+        print(r.stdout.replace('\\n', '\n'))
         if r.returncode != 0:
             raise RuntimeError(
-                'Command `%s` failed: exit code: %s' % (command_str, r.stderr))
-        else:
-            print(r.stdout, end='')
+                'Command `%s` failed.\nExit code %s: %s' % \
+                (command_list, r.returncode, r.stderr))
