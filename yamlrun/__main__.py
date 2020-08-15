@@ -1,13 +1,11 @@
-import os
 import argparse
-
 from .yaml import Yaml
-from pprint import pprint
 
 
 def parse_args():
     """
-    Load the yaml path as a positional argument
+    Load the YAML file path as a positional argument
+
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -34,9 +32,17 @@ def parse_args():
     return yaml_path, quiet, noenv
 
 
-if __name__ == "__main__":
+def run():
+    """
+    Load variables from YAML file and run script
+
+    """
     args = parse_args()
     yaml = Yaml(*args)
     yaml.parse_structure()
     yaml.parse_variables()
-    yaml.parse_script()
+    yaml.run_script()
+
+
+if __name__ == "__main__":
+    run()

@@ -3,6 +3,7 @@ import re
 import json
 import shlex
 import subprocess
+
 from yaml import safe_load
 from yaml.parser import ParserError
 from tabulate import tabulate
@@ -10,15 +11,27 @@ from pprint import pprint
 
 
 class Yaml(dict):
+    """
+    YAML file object
 
-    def __init__(self, path, quiet=False, noenv=False):
+    Parameters
+    ----------
+    path: str
+        Path to YAML file passed as a command-line argument by the user
+    quiet: bool
+        Run all commands quietly (except script execution)
+    noenv: bool
+        Whether to fetch $variables from the environment
+
+    """
+    def __init__(
+        self,
+        path: str,
+        quiet: bool=False,
+        noenv: bool=False
+    ):
         """
-        Parse data from yaml file
-
-        Parameters
-        ----------
-        path: str
-            Path defined by 
+        Parse YAML file
         """
         self.path = path
         self.quiet = quiet
@@ -31,9 +44,26 @@ class Yaml(dict):
             except TypeError:
                 raise ParserError("yaml file is empty")
 
-    def parse_structure(self):
+    def print(self, *args):
         """
-        Load the structure argument and find the associated names and paths
+        Verbose print: does not print if self.quiet is True
+        """
+        if not self.quiet:
+            print(*args)
+
+    def pprint(self, *args, **kwargs):
+        """
+        Verbose pretty print: does not print if self.quiet is True
+        """
+        if not self.quiet:
+            pprint(*args, **kwargs)
+            print('\n')
+
+    def parse_structure(
+        self
+    ):
+        """
+        Load YAML structure argument and find the associated names and paths
 
         Example
         -------
@@ -52,6 +82,7 @@ class Yaml(dict):
             raise ValueError(
                 '`structure` argument should end with "yaml"\n'
                 f'Received: "{structure}""')
+        self.variables = {'structure': structure}
         # Parse structure and find structure dirnames and abspaths
         abspath = os.path.abspath(self.path)
         filename = os.path.basename(abspath)
@@ -61,16 +92,17 @@ class Yaml(dict):
             dirname = os.path.basename(abspath)
             paths.insert(0, (var, dirname, abspath))
         # Store as dict
-        self.variables = {f'{s}_name': n for s, n, _ in paths}
+        self.variables.update({f'{s}_name': n for s, n, _ in paths})
         self.variables.update({f'{s}_path': p for s, _, p in paths})
         # Print
-        if not self.quiet:
-            print('Detected structure:\n')
-            print(tabulate(paths, headers=['SECTION', 'NAME', 'PATH']), '\n')
+        self.print('Detected structure:\n')
+        self.print(tabulate(paths, headers=['SECTION', 'NAME', 'PATH']), '\n')
 
-    def parse_variables(self):
+    def parse_variables(
+        self
+    ):
         """
-        Load user variables and replace any $variables with previously
+        Load YAML variables and replace any $variables with previously
         defined variables (e.g. from the structure)
 
         Example
@@ -93,12 +125,14 @@ class Yaml(dict):
                 parsed_val = self._replace_variables(parsed_val)
             self.variables[parsed_key] = parsed[parsed_key] = parsed_val
         # Print
-        if not self.quiet:
-            print('Parsed variables:\n')
-            pprint(parsed, sort_dicts=False)
-            print()
+        self.print('Parsed variables:\n')
+        self.pprint(parsed, sort_dicts=False)
 
-    def _replace_variables(self, parsed_str, add_quotes=False):
+    def _replace_variables(
+        self,
+        parsed_str: str,
+        add_quotes: bool=False
+    ):
         """
         Replace $variables with their value stored in self.variables
         If no variable is found, defaults to environment variables
@@ -166,30 +200,56 @@ class Yaml(dict):
                 parsed_str = parsed_str.replace(var, replacement)
         return parsed_str
     
-    def _environ(self, key):
-        """Get env variable if noenv is False"""
+    def _environ(
+        self,
+        name: str
+    ):
+        """
+        Get env variable if noenv is False
+
+        Parameters
+        ----------
+        name: str
+            Environment variable name
+
+        """
         if not self.noenv:
-            return os.environ.get(key, '')
+            return os.environ.get(name, '')
         else:
             return ''
 
-    def parse_script(self):
+    def run_script(
+        self
+    ):
         """
-        Parse script 
+        Parse YAML script, replace the variables and run in subprocess
+
         """
         script = self.get('script')
         cwd = script.get('cd', '$yaml_path')
         cwd = self._replace_variables(cwd)
         commands = script.get('run', [])
         commands = [
-            self._replace_variables(cmd, add_quotes=True)for cmd in commands]
-        if not self.quiet:
-            print('Running script:\n')
+            self._replace_variables(cmd, add_quotes=True) for cmd in commands]
+        self.print('Running script:\n')
         for cmd in commands:
             self._run_command(cmd, cwd)
     
-    def _run_command(self, command_str, cwd):
+    def _run_command(
+        self,
+        command_str: str,
+        cwd: str
+    ):
         """
+        Execute a command, wait for it to finish and display the output
+
+        Parameters
+        ----------
+        command_str: str
+            Command to execute, as a string
+        cwd: str
+            Directory to run the command from
+
         """
         command_list = shlex.split(command_str)
         r = subprocess.run(
